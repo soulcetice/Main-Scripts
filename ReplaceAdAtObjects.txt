@@ -1,0 +1,191 @@
+
+
+
+Sub CreateModeDisplayAllPages()
+
+Rem *******************************************************************************************************
+Rem This program cycles through all .pdl files in your folder of choice. For each page it opens it will cycle through all objects it finds in the page.
+Rem ensure Microsoft Scripting Runtime is check1ed in Tools\References menu
+Rem
+Rem             |------------|------------|------------|
+Rem             |   Author   |    Date    |   Version  |
+Rem             |   MURA02   | 18.01.2019 |     1.0    |
+Rem             |------------|------------|------------|
+Rem
+Rem *******************************************************************************************************
+
+Dim objDocument As Document
+Dim objVBScript As HMIScriptInfo
+Dim FileName, Path As String
+Dim FolderPath, strSourceCode As String
+Dim fso As FileSystemObject
+Dim fdr As Scripting.Folder
+Dim f As File
+Dim fs As Files
+Dim objsChanged As Integer
+Dim filterPages(10)
+Dim objsCreated As Integer
+
+starttime = Timer()
+
+
+Set fso = CreateObject("Scripting.FilesystemObject")
+
+strLogFile = "C:\Project\CreateModeDisplay_logfile" & starttime & ".txt"
+
+
+Path = "C:\Project\obj Pages" '"\\10.13.12.33\c$\Project\repairedVariables"
+PathLib = "C:\Project\ELV-HFM\wincproj\ELVAL_HFM_CLT\GraCS"
+
+Set fdr = fso.GetFolder(Path)
+Set fdrLib = fso.GetFolder(PathLib)
+
+Set fs = fdr.Files
+Set fsLib = fdrLib.Files
+
+Set fLib = fsLib.Item("Libi8_n_Devices-Valves_Tooltip+UAL.pdl") 'for act val or ref val objects, with or w/o main attribute
+
+Rem initialize objects processed counter
+objsChanged = 0
+objsCreated = 0
+
+Rem default filters
+filterpdl = ".pdl"
+
+For Each f In fs
+
+Rem init the property change counter to have a indicator for saving
+
+Rem Filter Files
+If InStr(1, f, filterpdl, vbTextCompare) > 0 Then
+Rem end of file filter
+
+    On Error Resume Next
+    'Application.Documents.CloseAll
+    Application.Documents.Open fLib, hmiOpenDocumentTypeVisible
+    Application.Documents.Open f, hmiOpenDocumentTypeVisible
+                    
+        Rem script to be performed on the filtered pages
+        
+        Dim obj As HMIObject
+        Dim objMode As HMIObject
+        Dim objNew As HMIObject
+        'Dim objs As HMIObjects
+        Dim myAdAt As HMIObject
+        Dim objDyn As HMIDynamicDialog
+        
+        Dim colSearchResults As HMICollection
+        
+        Set colSearchResults = Application.Documents(f).HMIObjects.Find(ObjectName:="*@V3_SMS_Mode*")
+        Set objMode = Application.Documents(fLib).HMIObjects("@V3_SMS_Mode_") 'here the object to be copied
+                                        
+        For Each obj In colSearchResults
+        
+            If InStr(1, obj.ObjectName, "@V3_SMS_Mode", vbTextCompare) > 0 Then
+                For i = 1 To obj.Properties.Count
+                    If obj.Properties(i).DynamicStateType = hmiDynamicStateTypeDynamicDialog Then
+                        Set objDyn = obj.Properties(i).Dynamic
+                            With objDyn
+                                oldTag = .Trigger.VariableTriggers.Item(1).VarName
+                                If InStr(1, oldTag, "AdAt", vbTextCompare) Then
+                                    newAdAtTag = oldTag
+                                End If
+                            End With
+                    Exit For
+                    End If
+                Next
+                
+                    k1 = k1 + 1
+                    objsCreated = objsCreated + 1
+                    'the actual copying
+                    Application.Documents(f).Selection.DeselectAll
+                    Application.Documents(fLib).Selection.DeselectAll
+                    objMode.Selected = True
+                    Application.Documents(fLib).Selection.CopySelection
+                    Application.Documents.Open f, hmiOpenDocumentTypeVisible
+                    Application.Documents(f).PasteClipboard
+                    Set objNew = Application.Documents(f).Selection(1) ' settle object
+                    Set objNew = Application.Documents(f).HMIObjects.Item(objNew.ObjectName)
+                    objNew.Top = obj.Top
+                    objNew.Left = obj.Left
+                    objNew.Layer = obj.Layer
+                    obj.delete
+                                        
+                    'here the changing of the variables in the newly copied object
+                    For i = 1 To objNew.Properties.Count
+                    
+                        If objNew.Properties(i).DynamicStateType = hmiDynamicStateTypeDynamicDialog Then
+                            Set objDyn = objNew.Properties(i).Dynamic
+                                With objDyn
+                                        .sourceCode = Replace(.sourceCode, "AdAt", newAdAtTag, , , vbTextCompare)
+                                End With
+                        ElseIf objNew.Properties(i).DynamicStateType = hmiDynamicStateTypeScript Then
+                            Set objScript = objNew.Properties(i).Dynamic
+                                With objScript
+                                    Rem MsgBox objNew.Properties(i).DisplayName & " " & .Trigger.VariableTriggers.Count & vbCrLf & .SourceCode
+                                    If .Trigger.Name = "Tag" Then
+                                        trigCnt = .Trigger.VariableTriggers.Count
+                                            For j = 1 To trigCnt
+                                                .Trigger.VariableTriggers(j).VarName = newTag
+                                                .sourceCode = Replace(.sourceCode, "AdAt", newAdAtTag, , , vbTextCompare)
+                                            Next
+                                    ElseIf .Trigger.Name = "Picture cycle" Then
+                                        .sourceCode = Replace(.sourceCode, "AdAt", newAdAtTag, , , vbTextCompare)
+                                    ElseIf .Trigger.Name = "Standard cycle" Then
+                                        .sourceCode = Replace(.sourceCode, "AdAt", newAdAtTag, , , vbTextCompare)
+                                    ElseIf .Trigger.Name = "Window cycle" Then
+                                        .sourceCode = Replace(.sourceCode, "AdAt", newAdAtTag, , , vbTextCompare)
+                                    ElseIf .Trigger.Name = "Animation cycle" Then
+                                        .sourceCode = Replace(.sourceCode, "AdAt", newAdAtTag, , , vbTextCompare)
+                                    End If
+                                End With
+                        ElseIf objNew.Properties(i).DynamicStateType = hmiDynamicStateTypeVariableIndirect Then
+                            Set objVar = objNew.Properties(i).Dynamic
+                                With objVar
+                                    'MsgBox .VarName
+                                    .VarName = Replace(.VarName, "AdAt", newAdAtTag, , , vbTextCompare)
+                                End With
+                        ElseIf objNew.Properties(i).DynamicStateType = hmiDynamicStateTypeVariableDirect Then
+                            Set objVar = objNew.Properties(i).Dynamic
+                                With objVar
+                                    'MsgBox .VarName
+                                    .VarName = Replace(.VarName, "AdAt", newAdAtTag, , , vbTextCompare)
+                                End With
+                        ElseIf objNew.Properties(i).DynamicStateType = hmiDynamicStateTypeNoDynamic Then
+                        End If
+                        
+                    Next
+                                    
+            End If
+        
+        Next
+
+        Set colSearchResults = Nothing
+
+       Rem end of script to be performed
+
+    Rem check1 if the file needs to be saved or not, else it will just close it
+    If k1 > 0 Then
+        'Application.Documents(f).Save
+    End If
+    'Application.Documents(f).Close
+
+End If
+Rem end multiple page filter *************************************************************
+'End If 'end multiple file filter
+'Next   'next row in array of files
+Rem ***************************************************************************************
+nextFile:
+
+Next 'next file in graCS
+
+exitSub:
+
+Set fso = Nothing
+Set Files = Nothing
+
+endTime = Timer()
+
+MsgBox objsCreated & " mode objects have been created in " & FormatNumber(endTime - starttime, 2) & " seconds"
+
+End Sub
